@@ -1,0 +1,98 @@
+# ==============================================================================
+# AMANA SHIELD — Production Docker Compose Configuration
+# Complete, secure, affordable production deployment stack:
+# - PostgreSQL 16 (isolated internal network, zero public port exposure)
+# - FastAPI Monolith (non-root, read-only rootfs, automated migrations)
+# - Caddy Reverse Proxy (automated Let's Encrypt TLS, HTTP/3, security headers)
+# ==============================================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: amana-shield-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-amana_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-amana_shield}
+    volumes:
+      - amana_pgdata:/var/lib/postgresql/data
+    networks:
+      - amana_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-amana_user} -d $${POSTGRES_DB:-amana_shield}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+        reservations:
+          memory: 256M
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amana-shield-api
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-amana_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-amana_shield}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - amana_internal
+      - amana_web
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1536M
+        reservations:
+          memory: 384M
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: amana-shield-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@amanashield.ng}
+    depends_on:
+      - api
+    networks:
+      - amana_web
+
+networks:
+  # Internal network has no host port bindings and cannot be reached from the public internet
+  amana_internal:
+    internal: true
+  amana_web:
+    driver: bridge
+
+volumes:
+  amana_pgdata:
+    name: amana_pgdata
+  caddy_data:
+    name: amana_caddy_data
+  caddy_config:
+    name: amana_caddy_config

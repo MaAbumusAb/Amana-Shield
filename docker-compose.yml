@@ -1,0 +1,48 @@
+# ==============================================================================
+# AMANA SHIELD — Development / Local Staging Docker Compose Configuration
+# For production deployment with HTTPS, use:
+#   docker compose -f docker-compose.prod.yml up -d
+# ==============================================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: amana-shield-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-amana_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_secret_password}
+      POSTGRES_DB: ${POSTGRES_DB:-amana_shield}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-amana_user} -d $${POSTGRES_DB:-amana_shield}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amana-shield-api
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      APP_DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-amana_user}:${POSTGRES_PASSWORD:-dev_secret_password}@db:5432/${POSTGRES_DB:-amana_shield}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

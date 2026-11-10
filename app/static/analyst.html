@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AMANA SHIELD — Analyst Dashboard</title>
+  <meta name="robots" content="noindex, nofollow">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    pre, code { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900 min-h-screen flex flex-col antialiased">
+  <div id="root" class="flex-grow flex flex-col"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const DEFAULT_KEY = "amana_analyst_secret_token_12345";
+
+    function LoginGate({ onAuthenticate }) {
+      const [keyInput, setKeyInput] = useState(DEFAULT_KEY);
+      const [error, setError] = useState(null);
+      const [loading, setLoading] = useState(false);
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        setError(null);
+        setLoading(true);
+
+        try {
+          const res = await fetch('/api/v1/analyst/overview', {
+            headers: { 'X-Analyst-Key': keyInput.trim() },
+          });
+          if (res.status === 401) {
+            throw new Error('Invalid Analyst API Key.');
+          }
+          if (!res.ok) {
+            throw new Error(`Server returned error HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          onAuthenticate(keyInput.trim(), data);
+        } catch (err) {
+          setError(err.message || 'Authentication failed');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div class="min-h-screen flex items-center justify-center p-4">
+          <div class="bg-white border border-slate-300 rounded-2xl p-6 md:p-8 max-w-md w-full shadow-md space-y-6">
+            <div class="text-center space-y-2">
+              <div class="w-12 h-12 rounded-xl bg-slate-900 text-white font-bold flex items-center justify-center text-xl mx-auto shadow-sm">
+                AS
+              </div>
+              <h1 class="text-xl font-bold text-slate-900">AMANA SHIELD Analyst Portal</h1>
+              <p class="text-xs text-slate-500">Authenticated access for security and civic verification analysts</p>
+            </div>
+
+            <form onSubmit={handleLogin} class="space-y-4">
+              <div>
+                <label for="analyst-key" class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Analyst API Secret Key
+                </label>
+                <input
+                  id="analyst-key"
+                  type="password"
+                  value={keyInput}
+                  onChange={(e) => setKeyInput(e.target.value)}
+                  placeholder="Enter analyst secret key"
+                  class="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 outline-none transition font-mono"
+                  required
+                />
+                <p class="text-[11px] text-slate-400 mt-1">Pre-filled with local development key.</p>
+              </div>
+
+              {error && (
+                <div role="alert" class="p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                class="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm py-2.5 rounded-xl transition shadow-xs flex items-center justify-center gap-2"
+              >
+                {loading ? 'Verifying Credentials...' : 'Authenticate & Enter Dashboard'}
+              </button>
+            </form>
+
+            <div class="text-center">
+              <a href="/" class="text-xs text-slate-500 hover:text-slate-800 transition">
+                ← Return to Public Verification Portal
+              </a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function InspectionModal({ submissionId, apiKey, onClose, onReviewed }) {
+      const [detail, setDetail] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [reviewStatus, setReviewStatus] = useState('CONFIRMED');
+      const [notes, setNotes] = useState('');
+      const [actionLoading, setActionLoading] = useState(false);
+      const [actionSuccess, setActionSuccess] = useState(null);
+
+      useEffect(() => {
+        let mounted = true;
+        fetch(`/api/v1/analyst/submissions/${submissionId}`, {
+          headers: { 'X-Analyst-Key': apiKey },
+        })
+          .then((r) => r.json())
+          .then((d) => {
+            if (mounted) {
+              setDetail(d);
+              setReviewStatus(d.internal_status || 'CONFIRMED');
+              setLoading(false);
+            }
+          })
+          .catch(() => {
+            if (mounted) setLoading(false);
+          });
+        return () => { mounted = false; };
+      }, [submissionId, apiKey]);
+
+      const handleReviewSubmit = async (e) => {
+        e.preventDefault();
+        setActionLoading(true);
+        try {
+          const res = await fetch(`/api/v1/analyst/submissions/${submissionId}/review`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Analyst-Key': apiKey,
+            },
+            body: JSON.stringify({
+              status: reviewStatus,
+              reviewer_notes: notes.trim() || undefined,
+            }),
+          });
+          if (res.ok) {
+            setActionSuccess('Review updated successfully.');
+            onReviewed();
+          }
+        } finally {
+          setActionLoading(false);
+        }
+      };
+
+      if (loading) {
+        return (
+          <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-2xl p-6 text-center text-sm font-medium text-slate-700 shadow-xl">
+              Loading submission inspection details...
+            </div>
+          </div>
+        );
+      }
+
+      if (!detail) {
+        return (
+          <div class="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-2xl p-6 text-center text-sm font-medium text-red-600 shadow-xl">
+              Failed to load submission details.
+              <div class="mt-4">
+                <button onClick={onClose} class="px-4 py-1.5 bg-slate-200 rounded-lg text-slate-800 text-xs">Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div class="bg-white border border-slate-300 rounded-2xl max-w-3xl w-full shadow-2xl my-8 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div class="p-5 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 class="text-base font-bold text-slate-900">Submission Inspection</h3>
+                <p class="text-xs text-slate-500 font-mono">ID: {detail.id}</p>
+              </div>
+              <button
+                onClick={onClose}
+                class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center text-sm transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scrollable Body */}
+            <div class="p-6 overflow-y-auto space-y-6 flex-grow text-xs">
+              {/* Basic Meta */}
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div>
+                  <span class="text-slate-400 block font-medium">Channel</span>
+                  <span class="font-bold text-slate-800">{detail.channel}</span>
+                </div>
+                <div>
+                  <span class="text-slate-400 block font-medium">Public Verdict</span>
+                  <span class="font-bold text-slate-800">{detail.public_verdict || 'N/A'}</span>
+                </div>
+                <div>
+                  <span class="text-slate-400 block font-medium">Review Status</span>
+                  <span class="font-bold text-slate-800">{detail.internal_status || 'N/A'}</span>
+                </div>
+                <div>
+                  <span class="text-slate-400 block font-medium">Submitted At</span>
+                  <span class="font-bold text-slate-800">{new Date(detail.submitted_at).toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Raw Content (Escaped as safe text) */}
+              <div>
+                <h4 class="font-bold text-slate-900 mb-1">Original Submitted Text (Untrusted Input):</h4>
+                <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 whitespace-pre-wrap leading-relaxed select-text font-mono text-[12px]">
+                  {detail.raw_text}
+                </div>
+              </div>
+
+              {/* Extracted URLs */}
+              {detail.extracted_urls && detail.extracted_urls.length > 0 && (
+                <div>
+                  <h4 class="font-bold text-slate-900 mb-1">Extracted URLs:</h4>
+                  <ul class="space-y-1">
+                    {detail.extracted_urls.map((u, i) => (
+                      <li key={i} class="bg-slate-50 border border-slate-200 rounded p-1.5 font-mono text-[11px] text-slate-700 break-all">
+                        {u}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Triggered Rules */}
+              {detail.triggered_rules && detail.triggered_rules.length > 0 && (
+                <div>
+                  <h4 class="font-bold text-slate-900 mb-1">Triggered Decision Rules:</h4>
+                  <div class="flex flex-wrap gap-1.5">
+                    {detail.triggered_rules.map((rule, i) => (
+                      <span key={i} class="bg-amber-100 text-amber-900 font-mono text-[11px] px-2 py-0.5 rounded border border-amber-200">
+                        {rule}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI & Triage Findings */}
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <h4 class="font-bold text-slate-900">Deterministic Triage Findings</h4>
+                  <div class="space-y-1 text-slate-700">
+                    <p>URL Risk: <strong>{detail.url_risk || 'N/A'}</strong></p>
+                    {detail.triage_findings?.extracted_urls?.length > 0 && (
+                      <p>Domains Inspected: <strong>{detail.triage_findings.extracted_urls.length}</strong></p>
+                    )}
+                  </div>
+                </div>
+
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <h4 class="font-bold text-slate-900">AI Scam Heuristics</h4>
+                  <div class="space-y-1 text-slate-700">
+                    <p>Assessed Message Risk: <strong>{detail.message_risk || 'N/A'}</strong></p>
+                    <p>Degraded Mode: <strong>{detail.is_degraded_mode ? 'Yes' : 'No'}</strong></p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Review & Correction Controls */}
+              <form onSubmit={handleReviewSubmit} class="bg-slate-900 text-white rounded-xl p-4 space-y-3">
+                <h4 class="font-bold text-sm text-emerald-400">Analyst Review & Correction Action</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[11px] text-slate-300 font-medium mb-1">Set Internal Review Status:</label>
+                    <select
+                      value={reviewStatus}
+                      onChange={(e) => setReviewStatus(e.target.value)}
+                      class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="CONFIRMED">CONFIRMED (Verified Threat/Campaign)</option>
+                      <option value="UNDER_REVIEW">UNDER_REVIEW (Requires Investigation)</option>
+                      <option value="DISMISSED">DISMISSED (Benign / False Alarm)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-300 font-medium mb-1">Audit Rationale Note:</label>
+                    <input
+                      type="text"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="e.g. Confirmed phishing portal impersonating INEC"
+                      class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {actionSuccess && (
+                  <p class="text-xs text-emerald-400 font-semibold">{actionSuccess}</p>
+                )}
+
+                <div class="flex justify-end pt-1">
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-4 py-2 rounded-lg transition"
+                  >
+                    {actionLoading ? 'Saving Audit Record...' : 'Apply Status Update'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function AnalystDashboardApp() {
+      const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('as_analyst_key') || '');
+      const [overview, setOverview] = useState(null);
+      const [activeTab, setActiveTab] = useState('submissions');
+      const [submissions, setSubmissions] = useState([]);
+      const [domains, setDomains] = useState([]);
+      const [claims, setClaims] = useState([]);
+      const [campaigns, setCampaigns] = useState([]);
+      const [inspectId, setInspectId] = useState(null);
+      const [refreshKey, setRefreshKey] = useState(0);
+
+      const handleAuth = (key, initialOverview) => {
+        sessionStorage.setItem('as_analyst_key', key);
+        setApiKey(key);
+        setOverview(initialOverview);
+      };
+
+      const handleLogout = () => {
+        sessionStorage.removeItem('as_analyst_key');
+        setApiKey('');
+        setOverview(null);
+      };
+
+      const reloadData = () => {
+        setRefreshKey((k) => k + 1);
+      };
+
+      useEffect(() => {
+        if (!apiKey) return;
+        let isCurrent = true;
+
+        // Fetch overview
+        fetch('/api/v1/analyst/overview', { headers: { 'X-Analyst-Key': apiKey } })
+          .then((r) => r.ok ? r.json() : null)
+          .then((d) => { if (d && isCurrent) setOverview(d); });
+
+        // Fetch tab data
+        if (activeTab === 'submissions') {
+          fetch('/api/v1/analyst/submissions?limit=30', { headers: { 'X-Analyst-Key': apiKey } })
+            .then((r) => r.ok ? r.json() : [])
+            .then((d) => { if (isCurrent) setSubmissions(d); });
+        } else if (activeTab === 'domains') {
+          fetch('/api/v1/analyst/domains?limit=50', { headers: { 'X-Analyst-Key': apiKey } })
+            .then((r) => r.ok ? r.json() : [])
+            .then((d) => { if (isCurrent) setDomains(d); });
+        } else if (activeTab === 'claims') {
+          fetch('/api/v1/analyst/claims?limit=50', { headers: { 'X-Analyst-Key': apiKey } })
+            .then((r) => r.ok ? r.json() : [])
+            .then((d) => { if (isCurrent) setClaims(d); });
+        } else if (activeTab === 'campaigns') {
+          fetch('/api/v1/analyst/campaigns', { headers: { 'X-Analyst-Key': apiKey } })
+            .then((r) => r.ok ? r.json() : [])
+            .then((d) => { if (isCurrent) setCampaigns(d); });
+        }
+
+        return () => { isCurrent = false; };
+      }, [apiKey, activeTab, refreshKey]);
+
+      if (!apiKey) {
+        return <LoginGate onAuthenticate={handleAuth} />;
+      }
+
+      return (
+        <div class="min-h-screen flex flex-col bg-slate-100">
+          {/* Top Bar */}
+          <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-30">
+            <div class="flex items-center gap-3">
+              <span class="w-8 h-8 rounded-lg bg-slate-900 text-white font-bold flex items-center justify-center text-sm">
+                AS
+              </span>
+              <div>
+                <h1 class="text-sm font-bold text-slate-900">AMANA SHIELD Analyst Workspace</h1>
+                <p class="text-[11px] text-slate-500">Security Operations & Threat Intelligence</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <button
+                onClick={reloadData}
+                class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg font-medium transition"
+              >
+                ↻ Refresh Data
+              </button>
+              <a
+                href="/"
+                class="text-xs text-slate-600 hover:text-slate-900 transition font-medium"
+              >
+                Public Portal
+              </a>
+              <button
+                onClick={handleLogout}
+                class="text-xs text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-lg font-medium transition"
+              >
+                Sign Out
+              </button>
+            </div>
+          </header>
+
+          <div class="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+            {/* Overview Metric Cards */}
+            {overview && (
+              <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+                  <span class="text-xs font-semibold text-slate-500 block">Total Submissions</span>
+                  <span class="text-2xl font-extrabold text-slate-900 mt-1 block">{overview.total_submissions}</span>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-red-200 bg-red-50/20 shadow-2xs">
+                  <span class="text-xs font-semibold text-red-700 block">Malicious Detected</span>
+                  <span class="text-2xl font-extrabold text-red-600 mt-1 block">{overview.malicious_count}</span>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-amber-200 bg-amber-50/20 shadow-2xs">
+                  <span class="text-xs font-semibold text-amber-700 block">Suspicious Flagged</span>
+                  <span class="text-2xl font-extrabold text-amber-600 mt-1 block">{overview.suspicious_count}</span>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-2xs">
+                  <span class="text-xs font-semibold text-emerald-700 block">Official Verified</span>
+                  <span class="text-2xl font-extrabold text-emerald-600 mt-1 block">{overview.official_count}</span>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+                  <span class="text-xs font-semibold text-slate-500 block">Under Review</span>
+                  <span class="text-2xl font-extrabold text-slate-800 mt-1 block">{overview.under_review_count}</span>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+                  <span class="text-xs font-semibold text-slate-500 block">Malicious Domains</span>
+                  <span class="text-2xl font-extrabold text-slate-900 mt-1 block">{overview.malicious_domains_count}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Navigation Tabs */}
+            <div class="flex border-b border-slate-200 space-x-1 text-sm font-semibold">
+              {[
+                { id: 'submissions', label: 'Recent Submissions Queue' },
+                { id: 'domains', label: 'Domain Directory' },
+                { id: 'claims', label: 'Claims Under Review' },
+                { id: 'campaigns', label: 'Scam Campaigns' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  class={`px-4 py-2.5 border-b-2 transition ${
+                    activeTab === tab.id
+                      ? 'border-slate-900 text-slate-900 bg-white rounded-t-lg'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab 1: Submissions Queue */}
+            {activeTab === 'submissions' && (
+              <div class="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs border-collapse">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
+                      <tr>
+                        <th class="py-3 px-4">Submitted</th>
+                        <th class="py-3 px-4">Channel</th>
+                        <th class="py-3 px-4">Verdict</th>
+                        <th class="py-3 px-4">Review Status</th>
+                        <th class="py-3 px-4">Message Snippet</th>
+                        <th class="py-3 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-slate-700">
+                      {submissions.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} class="p-8 text-center text-slate-400">
+                            No submissions recorded yet. Submissions from WhatsApp and Web will populate here.
+                          </td>
+                        </tr>
+                      ) : (
+                        submissions.map((sub) => {
+                          const verdictClass = {
+                            MALICIOUS: 'bg-red-100 text-red-800 border-red-200',
+                            SUSPICIOUS: 'bg-amber-100 text-amber-800 border-amber-200',
+                            OFFICIAL: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                            UNVERIFIED: 'bg-slate-100 text-slate-700 border-slate-200',
+                          }[sub.public_verdict] || 'bg-slate-100 text-slate-600';
+
+                          return (
+                            <tr key={sub.id} class="hover:bg-slate-50 transition">
+                              <td class="py-3 px-4 font-mono text-[11px] whitespace-nowrap text-slate-500">
+                                {new Date(sub.submitted_at).toLocaleDateString()} {new Date(sub.submitted_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                              </td>
+                              <td class="py-3 px-4">
+                                <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-semibold text-[10px]">
+                                  {sub.channel}
+                                </span>
+                              </td>
+                              <td class="py-3 px-4">
+                                <span class={`px-2 py-0.5 rounded-full font-bold text-[10px] border ${verdictClass}`}>
+                                  {sub.public_verdict || 'PENDING'}
+                                </span>
+                              </td>
+                              <td class="py-3 px-4">
+                                <span class="font-medium text-slate-600 text-[11px]">
+                                  {sub.internal_status || 'UNDER_REVIEW'}
+                                </span>
+                              </td>
+                              <td class="py-3 px-4 max-w-xs truncate text-slate-600">
+                                {sub.raw_text_preview}
+                              </td>
+                              <td class="py-3 px-4 text-right">
+                                <button
+                                  onClick={() => setInspectId(sub.id)}
+                                  class="text-xs bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1 rounded font-medium transition"
+                                >
+                                  Inspect
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: Domain Directory */}
+            {activeTab === 'domains' && (
+              <div class="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs border-collapse">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
+                      <tr>
+                        <th class="py-3 px-4">Canonical Host</th>
+                        <th class="py-3 px-4">Classification</th>
+                        <th class="py-3 px-4">Official Institution</th>
+                        <th class="py-3 px-4">Source Origin</th>
+                        <th class="py-3 px-4">Registered Date</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-slate-700">
+                      {domains.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} class="p-8 text-center text-slate-400">
+                            No domain records found.
+                          </td>
+                        </tr>
+                      ) : (
+                        domains.map((dom) => (
+                          <tr key={dom.id} class="hover:bg-slate-50">
+                            <td class="py-3 px-4 font-mono font-semibold text-slate-900">
+                              {dom.canonical_host}
+                            </td>
+                            <td class="py-3 px-4">
+                              <span class={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                dom.classification === 'MALICIOUS' ? 'bg-red-100 text-red-800' :
+                                dom.classification === 'SUSPICIOUS' ? 'bg-amber-100 text-amber-800' :
+                                dom.classification === 'OFFICIAL' ? 'bg-emerald-100 text-emerald-800' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                {dom.classification}
+                              </span>
+                            </td>
+                            <td class="py-3 px-4 text-slate-600 font-medium">
+                              {dom.official_institution || '—'}
+                            </td>
+                            <td class="py-3 px-4 text-slate-500">
+                              {dom.source || 'TRIAGE_ANALYSIS'}
+                            </td>
+                            <td class="py-3 px-4 font-mono text-[11px] text-slate-500">
+                              {new Date(dom.created_at).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 3: Claims Under Review */}
+            {activeTab === 'claims' && (
+              <div class="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs border-collapse">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
+                      <tr>
+                        <th class="py-3 px-4">Extracted Claim Text</th>
+                        <th class="py-3 px-4">Impersonated Entity</th>
+                        <th class="py-3 px-4">Outcome</th>
+                        <th class="py-3 px-4">Confidence</th>
+                        <th class="py-3 px-4">Matched Evidence</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-slate-700">
+                      {claims.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} class="p-8 text-center text-slate-400">
+                            No extracted claims recorded yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        claims.map((c) => (
+                          <tr key={c.id} class="hover:bg-slate-50">
+                            <td class="py-3 px-4 font-medium text-slate-800 max-w-sm">
+                              {c.claim_text}
+                            </td>
+                            <td class="py-3 px-4 font-semibold text-slate-700">
+                              {c.impersonated_entity || '—'}
+                            </td>
+                            <td class="py-3 px-4 font-semibold">
+                              <span class={`px-2 py-0.5 rounded text-[10px] ${
+                                c.verification_outcome === 'CONTRADICTED_BY_OFFICIAL' ? 'bg-red-100 text-red-800' :
+                                c.verification_outcome === 'VERIFIED_OFFICIAL' ? 'bg-emerald-100 text-emerald-800' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                {c.verification_outcome}
+                              </span>
+                            </td>
+                            <td class="py-3 px-4 text-slate-500">{c.confidence}</td>
+                            <td class="py-3 px-4 text-slate-600 truncate max-w-xs">
+                              {c.matched_source_title || '—'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 4: Scam Campaigns */}
+            {activeTab === 'campaigns' && (
+              <div class="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs border-collapse">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
+                      <tr>
+                        <th class="py-3 px-4">Campaign Title</th>
+                        <th class="py-3 px-4">Category</th>
+                        <th class="py-3 px-4">Status</th>
+                        <th class="py-3 px-4">Sightings</th>
+                        <th class="py-3 px-4">Last Seen</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-slate-700">
+                      {campaigns.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} class="p-8 text-center text-slate-400">
+                            No scam campaigns clustered yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        campaigns.map((camp) => (
+                          <tr key={camp.id} class="hover:bg-slate-50">
+                            <td class="py-3 px-4 font-bold text-slate-900">{camp.title}</td>
+                            <td class="py-3 px-4 text-slate-600">{camp.scam_category}</td>
+                            <td class="py-3 px-4">
+                              <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-bold text-[10px]">
+                                {camp.status}
+                              </span>
+                            </td>
+                            <td class="py-3 px-4 font-mono font-bold text-slate-900">{camp.sighting_count}</td>
+                            <td class="py-3 px-4 font-mono text-slate-500 text-[11px]">
+                              {new Date(camp.last_seen_at).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Inspection Modal */}
+          {inspectId && (
+            <InspectionModal
+              submissionId={inspectId}
+              apiKey={apiKey}
+              onClose={() => setInspectId(null)}
+              onReviewed={() => {
+                setInspectId(null);
+                reloadData();
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<AnalystDashboardApp />);
+  </script>
+</body>
+</html>

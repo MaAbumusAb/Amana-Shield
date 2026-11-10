@@ -1,0 +1,45 @@
+# ==============================================================================
+# AMANA SHIELD — Render.com Free Deployment Blueprint (render.yaml)
+# Connect your GitHub repository to Render (https://render.com) to deploy for FREE.
+# ==============================================================================
+
+services:
+  - type: web
+    name: amana-shield
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: "pip install -r requirements.txt && python scripts/init_local_db.py"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: APP_NAME
+        value: "AMANA SHIELD"
+      - key: APP_ENV
+        value: "development"
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_VERSION
+        value: "1.0.0"
+      - key: DATABASE_URL
+        value: "sqlite+aiosqlite:///amana_local.db"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PHONE_HASH_PEPPER
+        generateValue: true
+      - key: ANALYST_API_KEY
+        value: "amana_analyst_secret_token_12345"
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+      - key: WHATSAPP_APP_SECRET
+        value: "dev_whatsapp_app_secret"
+      - key: WHATSAPP_ACCESS_TOKEN
+        value: "dev_whatsapp_access_token"
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        value: "000000000000000"
+      - key: LLM_API_KEY
+        value: "dev-only-placeholder"
+      - key: LLM_BASE_URL
+        value: "https://api.openai.com/v1"
+      - key: LLM_MODEL_NAME
+        value: "gpt-4o-mini"

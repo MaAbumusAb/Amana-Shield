@@ -1,0 +1,61 @@
+# ==============================================================================
+# AMANA SHIELD — Caddy Production Reverse Proxy & Automatic HTTPS Configuration
+# Place this Caddyfile in the root directory. Replace yourdomain.com with your live domain.
+# ==============================================================================
+
+{
+    # Global options
+    email {$ACME_EMAIL:admin@amanashield.ng}
+    admin off
+    servers {
+        trusted_proxies static private_ranges
+    }
+}
+
+{$DOMAIN:localhost} {
+    # Request body size limit (1 MB max payload to reject DDoS attacks)
+    request_body {
+        max_size 1MB
+    }
+
+    # Security Headers
+    header {
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Strict Transport Security (HSTS) - 1 year with subdomains and preload
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Disable browser feature permissions not used by AMANA SHIELD
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+        # Remove server identity headers
+        -Server
+    }
+
+    # Gzip and Zstandard compression
+    encode zstd gzip
+
+    # Reverse proxy to FastAPI application container
+    reverse_proxy api:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # Health check and connection timeouts
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 30s
+            keepalive 60s
+        }
+    }
+
+    # Custom access logging in JSON format
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+}
